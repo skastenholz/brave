@@ -1,8 +1,9 @@
 package brave;
 
 import brave.sampler.Sampler;
+import org.junit.After;
 import org.junit.Test;
-import zipkin.Endpoint;
+import zipkin2.Endpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -11,11 +12,15 @@ public class NoopSpanTest {
       .clock(() -> {
         throw new AssertionError();
       })
-      .reporter(s -> {
+      .spanReporter(s -> {
         throw new AssertionError();
       })
       .build().tracer();
   Span span = tracer.newTrace();
+
+  @After public void close(){
+    Tracing.current().close();
+  }
 
   @Test public void isNoop() {
     assertThat(span.isNoop()).isTrue();
@@ -32,7 +37,7 @@ public class NoopSpanTest {
     span.annotate("foo");
     span.annotate(2L, "foo");
     span.tag("bar", "baz");
-    span.remoteEndpoint(Endpoint.create("lalala", 127 << 24 | 1));
+    span.remoteEndpoint(Endpoint.newBuilder().serviceName("lalala").ip("127.0.0.1").build());
     span.finish(1L);
     span.finish();
     span.abandon();

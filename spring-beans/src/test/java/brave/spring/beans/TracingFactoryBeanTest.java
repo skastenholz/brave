@@ -2,11 +2,11 @@ package brave.spring.beans;
 
 import brave.Clock;
 import brave.Tracing;
-import brave.internal.StrictCurrentTraceContext;
+import brave.propagation.StrictCurrentTraceContext;
 import brave.sampler.Sampler;
 import org.junit.After;
 import org.junit.Test;
-import zipkin.Endpoint;
+import zipkin2.Endpoint;
 import zipkin.reporter.Reporter;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -51,9 +51,9 @@ public class TracingFactoryBeanTest {
 
     assertThat(context.getBean(Tracing.class))
         .extracting("tracer.localEndpoint")
-        .containsExactly(Endpoint.builder()
+        .containsExactly(Endpoint.newBuilder()
             .serviceName("brave-webmvc-example")
-            .ipv4(1 << 24 | 2 << 16 | 3 << 8 | 4)
+            .ip("1.2.3.4")
             .port(8080).build());
   }
 
@@ -106,7 +106,7 @@ public class TracingFactoryBeanTest {
     context = new XmlBeans(""
         + "<bean id=\"tracing\" class=\"brave.spring.beans.TracingFactoryBean\">\n"
         + "  <property name=\"currentTraceContext\">\n"
-        + "    <bean class=\"brave.internal.StrictCurrentTraceContext\"/>\n"
+        + "    <bean class=\"brave.propagation.StrictCurrentTraceContext\"/>\n"
         + "  </property>\n"
         + "</bean>"
     );

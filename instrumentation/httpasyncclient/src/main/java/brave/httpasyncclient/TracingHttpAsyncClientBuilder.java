@@ -6,6 +6,7 @@ import brave.http.HttpClientHandler;
 import brave.http.HttpTracing;
 import brave.propagation.CurrentTraceContext;
 import brave.propagation.CurrentTraceContext.Scope;
+import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
 import java.io.IOException;
 import java.util.concurrent.Future;
@@ -28,13 +29,17 @@ import org.apache.http.nio.IOControl;
 import org.apache.http.nio.protocol.HttpAsyncRequestProducer;
 import org.apache.http.nio.protocol.HttpAsyncResponseConsumer;
 import org.apache.http.protocol.HttpContext;
-import zipkin.Endpoint;
+import zipkin2.Endpoint;
 
 /**
  * Note: The current span is only visible to interceptors {@link #addInterceptorLast(HttpRequestInterceptor)
  * added last}.
  */
 public final class TracingHttpAsyncClientBuilder extends HttpAsyncClientBuilder {
+  static final Propagation.Setter<HttpMessage, String> SETTER = (message, key, value) ->{
+    message.removeHeaders(key);
+    if (value != null) message.setHeader(key, value);
+  };
 
   public static HttpAsyncClientBuilder create(Tracing tracing) {
     return new TracingHttpAsyncClientBuilder(HttpTracing.create(tracing));
@@ -89,7 +94,8 @@ public final class TracingHttpAsyncClientBuilder extends HttpAsyncClientBuilder 
       HttpHost target = ((HttpRequestWrapper) httpRequest).getTarget();
       if (target == null) return false;
       if (builder.parseIp(target.getAddress()) || builder.parseIp(target.getHostName())) {
-        builder.port(target.getPort());
+        int port = target.getPort();
+        if (port > 0) builder.port(port);
         return true;
       }
       return false;

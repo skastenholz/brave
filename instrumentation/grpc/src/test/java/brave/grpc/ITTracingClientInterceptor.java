@@ -3,7 +3,7 @@ package brave.grpc;
 import brave.Tracer;
 import brave.Tracing;
 import brave.context.log4j2.ThreadContextCurrentTraceContext;
-import brave.internal.StrictCurrentTraceContext;
+import brave.propagation.StrictCurrentTraceContext;
 import brave.propagation.TraceContext;
 import brave.propagation.TraceContextOrSamplingFlags;
 import brave.sampler.Sampler;
@@ -22,6 +22,7 @@ import io.grpc.examples.helloworld.GraterGrpc;
 import io.grpc.examples.helloworld.GreeterGrpc;
 import io.grpc.examples.helloworld.HelloReply;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
@@ -31,33 +32,34 @@ import org.apache.logging.log4j.Logger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import zipkin.Constants;
-import zipkin.Span;
-import zipkin.internal.Util;
+import zipkin2.Span;
 
 import static brave.grpc.GreeterImpl.HELLO_REQUEST;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
 import static org.junit.Assume.assumeTrue;
 
 public class ITTracingClientInterceptor {
+  static final Charset UTF_8 = Charset.forName("UTF-8");
   Logger testLogger = LogManager.getLogger();
 
   ConcurrentLinkedDeque<Span> spans = new ConcurrentLinkedDeque<>();
 
-  Tracing tracing;
+  Tracing tracing = tracingBuilder(Sampler.ALWAYS_SAMPLE).build();
   TestServer server = new TestServer();
   ManagedChannel client;
 
   @Before public void setup() throws IOException {
     server.start();
-    tracing = tracingBuilder(Sampler.ALWAYS_SAMPLE).build();
     client = newClient();
   }
 
   @After public void close() throws Exception {
     closeClient(client);
     server.stop();
+    Tracing current = Tracing.current();
+    if (current != null) current.close();
   }
 
   ManagedChannel newClient() {
@@ -141,20 +143,19 @@ public class ITTracingClientInterceptor {
     assertThat(context.context().sampled()).isFalse();
   }
 
-  @Test public void reportsClientAnnotationsToZipkin() throws Exception {
+  @Test public void reportsClientKindToZipkin() throws Exception {
     GreeterGrpc.newBlockingStub(client).sayHello(HELLO_REQUEST);
 
     assertThat(spans)
-        .flatExtracting(s -> s.annotations)
-        .extracting(a -> a.value)
-        .containsExactly("cs", "cr");
+        .extracting(Span::kind)
+        .containsExactly(Span.Kind.CLIENT);
   }
 
   @Test public void defaultSpanNameIsMethodName() throws Exception {
     GreeterGrpc.newBlockingStub(client).sayHello(HELLO_REQUEST);
 
     assertThat(spans)
-        .extracting(s -> s.name)
+        .extracting(Span::name)
         .containsExactly("helloworld.greeter/sayhello");
   }
 
@@ -179,20 +180,16 @@ public class ITTracingClientInterceptor {
     }
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(a -> a.key.equals(Constants.ERROR))
-        .extracting(a -> new String(a.value, Util.UTF_8))
-        .containsExactly("UNIMPLEMENTED");
+        .flatExtracting(s -> s.tags().entrySet())
+        .containsExactly(entry("error", "UNIMPLEMENTED"));
   }
 
   @Test public void addsErrorTag_onTransportException() throws Exception {
     reportsSpanOnTransportException();
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(a -> a.key.equals(Constants.ERROR))
-        .extracting(a -> new String(a.value, Util.UTF_8))
-        .containsExactly("UNAVAILABLE");
+        .flatExtracting(s -> s.tags().entrySet())
+        .containsExactly(entry("error", "UNAVAILABLE"));
   }
 
   @Test public void addsErrorTag_onCanceledFuture() throws Exception {
@@ -204,10 +201,8 @@ public class ITTracingClientInterceptor {
     close(); // blocks until the cancel finished
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(a -> a.key.equals(Constants.ERROR))
-        .extracting(a -> new String(a.value, Util.UTF_8))
-        .containsExactly("CANCELLED");
+        .flatExtracting(s -> s.tags().entrySet())
+        .containsExactly(entry("error", "CANCELLED"));
   }
 
   /**
@@ -246,7 +241,7 @@ public class ITTracingClientInterceptor {
 
   Tracing.Builder tracingBuilder(Sampler sampler) {
     return Tracing.newBuilder()
-        .reporter(spans::add)
+        .spanReporter(spans::add)
         .currentTraceContext( // connect to log4
             ThreadContextCurrentTraceContext.create(new StrictCurrentTraceContext()))
         .sampler(sampler);

@@ -4,7 +4,6 @@ import com.github.kristofa.brave.AnnotationSubmitter.Clock;
 import com.github.kristofa.brave.AnnotationSubmitter.DefaultClock;
 import com.github.kristofa.brave.internal.Internal;
 import com.github.kristofa.brave.internal.InternalSpan;
-import com.github.kristofa.brave.internal.Nullable;
 import com.github.kristofa.brave.internal.Util;
 import com.twitter.zipkin.gen.Endpoint;
 import com.twitter.zipkin.gen.Span;
@@ -12,6 +11,7 @@ import java.net.UnknownHostException;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import javax.annotation.Nullable;
 import zipkin.Constants;
 import zipkin.reporter.AsyncReporter;
 import zipkin.reporter.Reporter;
@@ -19,7 +19,6 @@ import zipkin.reporter.Sender;
 
 import static com.github.kristofa.brave.InetAddressUtilities.getLocalHostLANAddress;
 import static com.github.kristofa.brave.InetAddressUtilities.toInt;
-import static zipkin.internal.Util.checkNotNull;
 
 /** @deprecated Replaced by {@link brave.Tracing} */
 @Deprecated
@@ -150,7 +149,8 @@ public class Brave {
          * <p>See https://github.com/openzipkin/zipkin-reporter-java
          */
         public Builder reporter(Reporter<zipkin.Span> reporter) {
-            this.reporter = checkNotNull(reporter, "reporter");
+            if (reporter == null) throw new NullPointerException("reporter == null");
+            this.reporter = reporter;
             return this;
         }
 
@@ -175,7 +175,8 @@ public class Brave {
         }
 
         public Builder clock(Clock clock) {
-            this.clock = checkNotNull(clock, "clock");
+            if (clock == null) throw new NullPointerException("clock == null");
+            this.clock = clock;
             return this;
         }
 

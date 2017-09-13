@@ -6,6 +6,7 @@ import brave.http.HttpSampler;
 import brave.http.HttpTracing;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import javax.annotation.Nonnull;
 import okhttp3.Call;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -14,27 +15,29 @@ import okhttp3.mockwebserver.Dispatcher;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
 import okhttp3.mockwebserver.RecordedRequest;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
-import zipkin.Endpoint;
-import zipkin.internal.Util;
+import zipkin2.Endpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.entry;
 
 /** This is an example of http request sampling */
 public class RequestSamplingTest {
   @Rule public MockWebServer server = new MockWebServer();
 
-  ConcurrentLinkedDeque<zipkin.Span> spans = new ConcurrentLinkedDeque<>();
+  ConcurrentLinkedDeque<zipkin2.Span> spans = new ConcurrentLinkedDeque<>();
   Tracing tracing = Tracing.newBuilder()
-      .localEndpoint(Endpoint.builder().serviceName("server").build())
-      .reporter(spans::push)
+      .localEndpoint(Endpoint.newBuilder().serviceName("server").build())
+      .spanReporter(spans::push)
       .build();
   HttpTracing httpTracing = HttpTracing.newBuilder(tracing)
       // server starts traces under the path /api
       .serverSampler(new HttpSampler() {
-        @Override public <Req> Boolean trySample(HttpAdapter<Req, ?> adapter, Req request) {
+        @Override @Nonnull
+        public <Req> Boolean trySample(HttpAdapter<Req, ?> adapter, Req request) {
           return adapter.path(request).startsWith("/api");
         }
       })
@@ -61,6 +64,10 @@ public class RequestSamplingTest {
     }));
   }
 
+  @After public void close(){
+    Tracing.current().close();
+  }
+
   @Test public void serverDoesntTraceFoo() throws Exception {
     callServer("/foo");
     assertThat(spans).isEmpty();
@@ -70,10 +77,8 @@ public class RequestSamplingTest {
     callServer("/api");
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(b -> b.key.equals("http.path"))
-        .extracting(b -> new String(b.value, Util.UTF_8))
-        .containsOnly("/api", "/next");
+        .flatExtracting(s -> s.tags().entrySet())
+        .contains(entry("http.path", "/api"), entry("http.path", "/next"));
   }
 
   void callServer(String path) throws IOException {

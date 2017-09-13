@@ -1,10 +1,8 @@
 package com.twitter.zipkin.gen;
 
-import com.github.kristofa.brave.internal.Nullable;
 import java.io.Serializable;
 import javax.annotation.Generated;
-
-import static zipkin.internal.Util.equal;
+import javax.annotation.Nullable;
 
 /**
  * An annotation is similar to a log statement. It includes a host field which
@@ -50,6 +48,10 @@ public class Annotation implements Serializable {
           && equal(this.host, that.host);
     }
     return false;
+  }
+
+  static boolean equal(Object a, Object b) {
+    return a == b || a != null && a.equals(b);
   }
 
   @Override

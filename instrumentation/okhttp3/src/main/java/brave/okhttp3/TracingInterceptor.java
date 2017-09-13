@@ -5,14 +5,16 @@ import brave.Tracer;
 import brave.Tracing;
 import brave.http.HttpClientHandler;
 import brave.http.HttpTracing;
+import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import okhttp3.Connection;
+import okhttp3.Headers;
 import okhttp3.Interceptor;
 import okhttp3.Request;
 import okhttp3.Response;
-import zipkin.Endpoint;
+import zipkin2.Endpoint;
 
 /**
  * This is a network-level interceptor, which creates a new span for each attempt. Note that this
@@ -20,6 +22,13 @@ import zipkin.Endpoint;
  * In cases like that, use {@link TracingCallFactory}.
  */
 public final class TracingInterceptor implements Interceptor {
+  static final Propagation.Setter<Request.Builder, String> SETTER = (builder, key, value) -> {
+    if (value == null) {
+      builder.headers(Headers.of());
+    } else {
+      builder.header(key, value);
+    }
+  };
 
   public static Interceptor create(Tracing tracing) {
     return create(HttpTracing.create(tracing));
@@ -39,7 +48,7 @@ public final class TracingInterceptor implements Interceptor {
     tracer = httpTracing.tracing().tracer();
     remoteServiceName = httpTracing.serverName();
     handler = HttpClientHandler.create(httpTracing, new HttpAdapter());
-    injector = httpTracing.tracing().propagation().injector(Request.Builder::addHeader);
+    injector = httpTracing.tracing().propagation().injector(SETTER);
   }
 
   @Override public Response intercept(Chain chain) throws IOException {
@@ -64,7 +73,7 @@ public final class TracingInterceptor implements Interceptor {
   void parseServerAddress(Connection connection, Span span) {
     if (span.isNoop()) return;
     InetSocketAddress remoteAddress = connection.route().socketAddress();
-    Endpoint.Builder builder = Endpoint.builder().serviceName(remoteServiceName);
+    Endpoint.Builder builder = Endpoint.newBuilder().serviceName(remoteServiceName);
     builder.parseIp(remoteAddress.getAddress());
     builder.port(remoteAddress.getPort());
     span.remoteEndpoint(builder.build());

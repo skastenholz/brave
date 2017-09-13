@@ -20,12 +20,12 @@ http (as opposed to Kafka).
 ```java
 // Configure a reporter, which controls how often spans are sent
 //   (the dependency is io.zipkin.reporter:zipkin-sender-okhttp3)
-sender = OkHttpSender.create("http://127.0.0.1:9411/api/v1/spans");
-reporter = AsyncReporter.create(sender);
+sender = OkHttpSender.json("http://127.0.0.1:9411/api/v2/spans");
+spanReporter = AsyncReporter.v2(sender);
 // Create a tracing component with the service name you want to see in Zipkin.
 tracing = Tracing.newBuilder()
                  .localServiceName("my-service")
-                 .reporter(reporter)
+                 .spanReporter(spanReporter)
                  .build();
 
 // Tracing exposes objects you might need, most importantly the tracer
@@ -184,7 +184,7 @@ And here's how a server might handle this..
 extractor = tracing.propagation().extractor(Request::getHeader);
 
 // convert that context to a span which you can name and add tags to
-oneWayReceive = tracer.nextSpan(extractor, request)
+oneWayReceive = nextSpan(tracer, extractor.extract(request))
     .name("process-request")
     .kind(SERVER)
     ... add tags etc.
@@ -196,6 +196,8 @@ oneWayReceive.start().flush();
 // you can create children to represent follow-up work.
 next = tracer.newSpan(oneWayReceive.context()).name("step2").start();
 ```
+
+**Note** The above propagation logic is a simplified version of our [http handlers](https://github.com/openzipkin/brave/tree/master/instrumentation/http#http-server).
 
 There's a working example of a one-way span [here](src/test/java/brave/features/async/OneWaySpanTest.java).
 
@@ -486,6 +488,30 @@ effectively no overhead (as it is a noop).
 Unlike previous implementations, Brave 4 only needs one timestamp per
 span. All annotations are recorded on an offset basis, using the less
 expensive and more precise `System.nanoTime()` function.
+
+## Unit testing instrumentation
+
+When writing unit tests, there are a few tricks that will make bugs
+easier to find:
+
+* Report spans into a concurrent queue, so you can read them in tests
+* Use `StrictCurrentTraceContext` to reveal subtle propagation bugs
+* Unconditionally cleanup `Tracing.current()`, to prevent leaks
+
+Here's an example setup for your unit test fixture:
+```java
+ConcurrentLinkedDeque<Span> spans = new ConcurrentLinkedDeque<>();
+
+Tracing tracing = Tracing.newBuilder()
+                 .currentTraceContext(new StrictCurrentTraceContext())
+                 .reporter(spans::add)
+                 .build();
+
+  @After public void close() {
+    Tracing current = Tracing.current();
+    if (current != null) current.close();
+  }
+```
 
 ## Upgrading from Brave 3
 Brave 4 was designed to live alongside Brave 3. Using `TracerAdapter`,

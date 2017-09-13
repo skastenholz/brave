@@ -3,6 +3,7 @@ package brave.context.log4j12;
 import brave.internal.HexCodec;
 import brave.propagation.CurrentTraceContext;
 import brave.propagation.TraceContext;
+import javax.annotation.Nullable;
 import org.apache.log4j.MDC;
 
 /**
@@ -11,7 +12,7 @@ import org.apache.log4j.MDC;
  */
 public final class MDCCurrentTraceContext extends CurrentTraceContext {
   public static MDCCurrentTraceContext create() {
-    return new MDCCurrentTraceContext(new Default());
+    return create(CurrentTraceContext.Default.inheritable());
   }
 
   public static MDCCurrentTraceContext create(CurrentTraceContext delegate) {
@@ -33,7 +34,7 @@ public final class MDCCurrentTraceContext extends CurrentTraceContext {
   }
 
   @Override
-  public Scope newScope(TraceContext currentSpan) {
+  public Scope newScope(@Nullable TraceContext currentSpan) {
     final Object previousTraceId = MDC.get("traceId");
     final Object previousSpanId = MDC.get("spanId");
 

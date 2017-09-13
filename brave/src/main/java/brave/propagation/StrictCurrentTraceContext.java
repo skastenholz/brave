@@ -1,9 +1,15 @@
-package brave.internal;
+package brave.propagation;
 
-import brave.propagation.CurrentTraceContext;
-import brave.propagation.TraceContext;
+import javax.annotation.Nullable;
 
-/** Useful when developing instrumentation as state is enforced more strictly */
+/**
+ * Useful when developing instrumentation as state is enforced more strictly.
+ *
+ * <p>For example, it is instance scoped as opposed to static scoped, not inheritable and throws an
+ * exception if a scope is closed on a different thread that it was opened on.
+ *
+ * @see CurrentTraceContext.Default
+ */
 public final class StrictCurrentTraceContext extends CurrentTraceContext {
   // intentionally not inheritable to ensure instrumentation propagation doesn't accidentally work
   // intentionally not static to make explicit when instrumentation need per thread semantics
@@ -14,7 +20,7 @@ public final class StrictCurrentTraceContext extends CurrentTraceContext {
   }
 
   /** Identifies problems by throwing assertion errors when a scope is closed on a different thread. */
-  @Override public Scope newScope(TraceContext currentSpan) {
+  @Override public Scope newScope(@Nullable TraceContext currentSpan) {
     TraceContext previous = local.get();
     local.set(currentSpan);
     return new StrictScope(previous, new Error(String.format("Thread %s opened scope for %s here:",

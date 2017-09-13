@@ -5,13 +5,18 @@ import brave.propagation.TraceContext;
 import brave.sampler.Sampler;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.After;
 import org.junit.Test;
-import zipkin.Endpoint;
+import zipkin2.Endpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 public class TracerTest {
   Tracer tracer = Tracing.newBuilder().build().tracer();
+
+  @After public void close(){
+    Tracing.current().close();
+  }
 
   @Test public void sampler() {
     Sampler sampler = new Sampler() {
@@ -29,17 +34,17 @@ public class TracerTest {
   @Test public void localServiceName() {
     tracer = Tracing.newBuilder().localServiceName("my-foo").build().tracer();
 
-    assertThat(tracer.localEndpoint.serviceName)
+    assertThat(tracer.localEndpoint.serviceName())
         .isEqualTo("my-foo");
   }
 
   @Test public void localServiceName_defaultIsUnknown() {
-    assertThat(tracer.localEndpoint.serviceName)
+    assertThat(tracer.localEndpoint.serviceName())
         .isEqualTo("unknown");
   }
 
   @Test public void localServiceName_ignoredWhenGivenLocalEndpoint() {
-    Endpoint localEndpoint = Endpoint.create("my-bar", 127 << 24 | 1);
+    Endpoint localEndpoint = Endpoint.newBuilder().serviceName("my-bar").build();
     tracer = Tracing.newBuilder().localServiceName("my-foo")
         .localEndpoint(localEndpoint).build().tracer();
 
@@ -88,13 +93,13 @@ public class TracerTest {
   }
 
   @Test public void newTrace_debug_flag() {
-    List<zipkin.Span> spans = new ArrayList<>();
-    tracer = Tracing.newBuilder().reporter(spans::add).build().tracer();
+    List<zipkin2.Span> spans = new ArrayList<>();
+    tracer = Tracing.newBuilder().spanReporter(spans::add).build().tracer();
 
     Span root = tracer.newTrace(SamplingFlags.DEBUG).start();
     root.finish();
 
-    assertThat(spans).extracting(s -> s.debug)
+    assertThat(spans).extracting(zipkin2.Span::debug)
         .containsExactly(true);
   }
 
@@ -170,6 +175,14 @@ public class TracerTest {
           assertThat(c.context().parentId()).isEqualTo(parent.spanId());
         })
         .isInstanceOf(RealSpan.class);
+  }
+
+  /** A child span is not sharing a span ID with its parent by definition */
+  @Test public void newChild_isntShared() {
+    TraceContext parent = tracer.newTrace().context();
+
+    assertThat(tracer.newChild(parent).context().shared())
+        .isFalse();
   }
 
   @Test public void newChild_noop() {

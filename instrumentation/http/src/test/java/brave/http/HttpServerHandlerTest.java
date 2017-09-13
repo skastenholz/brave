@@ -5,16 +5,18 @@ import brave.Tracing;
 import brave.propagation.SamplingFlags;
 import brave.propagation.TraceContext;
 import brave.propagation.TraceContextOrSamplingFlags;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
+import zipkin2.Endpoint;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
-import static org.mockito.Matchers.anyObject;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Matchers.isA;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,7 +39,11 @@ public class HttpServerHandlerTest {
     handler = HttpServerHandler.create(httpTracing, adapter);
 
     when(adapter.method(request)).thenReturn("GET");
-    when(adapter.parseClientAddress(eq(request), anyObject())).thenCallRealMethod();
+    when(adapter.parseClientAddress(eq(request), isA(Endpoint.Builder.class))).thenCallRealMethod();
+  }
+
+  @After public void close(){
+    Tracing.current().close();
   }
 
   @Test public void handleReceive_defaultsToMakeNewTrace() {

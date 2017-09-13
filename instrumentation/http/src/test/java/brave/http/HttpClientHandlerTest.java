@@ -5,13 +5,13 @@ import brave.Tracing;
 import brave.propagation.TraceContext;
 import java.util.ArrayList;
 import java.util.List;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
-import zipkin.Constants;
-import zipkin.Span;
+import zipkin2.Span;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.failBecauseExceptionWasNotThrown;
@@ -32,11 +32,15 @@ public class HttpClientHandlerTest {
   HttpClientHandler<Object, Object> handler;
 
   @Before public void init() {
-    httpTracing = HttpTracing.newBuilder(Tracing.newBuilder().reporter(spans::add).build())
+    httpTracing = HttpTracing.newBuilder(Tracing.newBuilder().spanReporter(spans::add).build())
         .clientSampler(sampler).build();
     handler = HttpClientHandler.create(httpTracing, adapter);
 
     when(adapter.method(request)).thenReturn("GET");
+  }
+
+  @After public void close(){
+    Tracing.current().close();
   }
 
   @Test public void handleSend_defaultsToMakeNewTrace() {
@@ -86,9 +90,7 @@ public class HttpClientHandlerTest {
     HttpClientHandler.create(httpTracing, adapter).handleSend(injector, request).finish();
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(b -> b.key.equals(Constants.SERVER_ADDR))
-        .extracting(b -> b.endpoint.serviceName)
+        .extracting(Span::remoteServiceName)
         .containsExactly("remote-service");
   }
 
@@ -96,8 +98,7 @@ public class HttpClientHandlerTest {
     handler.handleSend(injector, request).finish();
 
     assertThat(spans)
-        .flatExtracting(s -> s.binaryAnnotations)
-        .filteredOn(b -> b.key.equals(Constants.SERVER_ADDR))
+        .extracting(Span::remoteServiceName)
         .isEmpty();
   }
 

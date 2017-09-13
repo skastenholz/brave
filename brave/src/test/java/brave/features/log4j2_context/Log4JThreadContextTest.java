@@ -48,10 +48,12 @@ public class Log4JThreadContextTest {
     }
     assertThat(ThreadContext.get("traceId"))
         .isNull();
+
+    Tracing.current().close();
   }
 
   static class Log4J2CurrentTraceContext extends CurrentTraceContext {
-    CurrentTraceContext delegate = new CurrentTraceContext.Default();
+    CurrentTraceContext delegate = CurrentTraceContext.Default.create();
 
     @Override public TraceContext get() {
       return delegate.get();

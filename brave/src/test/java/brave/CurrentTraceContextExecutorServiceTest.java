@@ -1,7 +1,7 @@
 package brave;
 
-import brave.internal.StrictCurrentTraceContext;
 import brave.propagation.CurrentTraceContext;
+import brave.propagation.StrictCurrentTraceContext;
 import brave.propagation.TraceContext;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +34,8 @@ public class CurrentTraceContextExecutorServiceTest {
   @After public void shutdownExecutor() throws InterruptedException {
     wrappedExecutor.shutdown();
     wrappedExecutor.awaitTermination(1, TimeUnit.SECONDS);
+    Tracing current = Tracing.current();
+    if (current != null) current.close();
   }
 
   final TraceContext[] threadValues = new TraceContext[2];

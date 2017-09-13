@@ -9,26 +9,29 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Test;
-import zipkin.Constants;
+import zipkin2.Annotation;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.data.MapEntry.entry;
-import static zipkin.internal.Util.UTF_8;
 
 /**
  * This shows how one might make an OpenTracing adapter for Brave, and how to navigate in and out
  * of the core concepts.
  */
 public class OpenTracingAdapterTest {
-  List<zipkin.Span> spans = new ArrayList<>();
-  Tracing brave = Tracing.newBuilder().reporter(spans::add).build();
+  List<zipkin2.Span> spans = new ArrayList<>();
+  Tracing brave = Tracing.newBuilder().spanReporter(spans::add).build();
   BraveTracer opentracing = BraveTracer.wrap(brave);
+
+  @After public void close() {
+    Tracing.current().close();
+  }
 
   @Test public void startWithOpenTracingAndFinishWithBrave() {
     io.opentracing.Span openTracingSpan = opentracing.buildSpan("encode")
-        .withTag(Constants.LOCAL_COMPONENT, "codec")
+        .withTag("lc", "codec")
         .withStartTimestamp(1L).start();
 
     brave.Span braveSpan = ((BraveSpan) openTracingSpan).unwrap();
@@ -41,7 +44,7 @@ public class OpenTracingAdapterTest {
 
   @Test public void startWithBraveAndFinishWithOpenTracing() {
     brave.Span braveSpan = brave.tracer().newTrace().name("encode")
-        .tag(Constants.LOCAL_COMPONENT, "codec")
+        .tag("lc", "codec")
         .start(1L);
 
     io.opentracing.Span openTracingSpan = BraveSpan.wrap(braveSpan);
@@ -90,13 +93,13 @@ public class OpenTracingAdapterTest {
 
   void checkSpanReportedToZipkin() {
     assertThat(spans).first().satisfies(s -> {
-          assertThat(s.name).isEqualTo("encode");
-          assertThat(s.timestamp).isEqualTo(1L);
-          assertThat(s.annotations).extracting(a -> a.timestamp, a -> a.value)
-              .containsExactly(tuple(2L, "pump fake"));
-          assertThat(s.binaryAnnotations).extracting(b -> b.key, b -> new String(b.value, UTF_8))
-              .containsExactly(tuple(Constants.LOCAL_COMPONENT, "codec"));
-          assertThat(s.duration).isEqualTo(2L);
+          assertThat(s.name()).isEqualTo("encode");
+          assertThat(s.timestamp()).isEqualTo(1L);
+          assertThat(s.annotations())
+              .containsExactly(Annotation.create(2L, "pump fake"));
+          assertThat(s.tags())
+              .containsExactly(entry("lc", "codec"));
+          assertThat(s.duration()).isEqualTo(2L);
         }
     );
   }

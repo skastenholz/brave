@@ -7,16 +7,20 @@ import com.p6spy.engine.event.SimpleJdbcEventListener;
 import java.net.URI;
 import java.sql.Connection;
 import java.sql.SQLException;
-import zipkin.Constants;
-import zipkin.Endpoint;
-import zipkin.TraceKeys;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javax.annotation.Nullable;
+import zipkin2.Endpoint;
 
 final class TracingJdbcEventListener extends SimpleJdbcEventListener {
 
-  final String remoteServiceName;
+  private final static Pattern URL_SERVICE_NAME_FINDER =
+      Pattern.compile("zipkinServiceName=(\\w*)");
+
+  @Nullable final String remoteServiceName;
   final boolean includeParameterValues;
 
-  TracingJdbcEventListener(String remoteServiceName, boolean includeParameterValues) {
+  TracingJdbcEventListener(@Nullable String remoteServiceName, boolean includeParameterValues) {
     this.remoteServiceName = remoteServiceName;
     this.includeParameterValues = includeParameterValues;
   }
@@ -37,7 +41,7 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
     if (span == null || span.isNoop()) return;
 
     span.kind(Span.Kind.CLIENT).name(sql.substring(0, sql.indexOf(' ')));
-    span.tag(TraceKeys.SQL_QUERY, sql);
+    span.tag("sql.query", sql);
     parseServerAddress(info.getConnectionInformation().getConnection(), span);
     span.start();
   }
@@ -47,7 +51,7 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
     if (span == null || span.isNoop()) return;
 
     if (e != null) {
-      span.tag(Constants.ERROR, Integer.toString(e.getErrorCode()));
+      span.tag("error", Integer.toString(e.getErrorCode()));
     }
     span.finish();
   }
@@ -59,9 +63,20 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
   void parseServerAddress(Connection connection, Span span) {
     try {
       URI url = URI.create(connection.getMetaData().getURL().substring(5)); // strip "jdbc:"
-      Endpoint.Builder builder = Endpoint.builder().port(url.getPort());
+      String defaultRemoteServiceName = remoteServiceName;
+      Matcher matcher = URL_SERVICE_NAME_FINDER.matcher(url.toString());
+      if (matcher.find() && matcher.groupCount() == 1) {
+        String parsedServiceName = matcher.group(1);
+        if (parsedServiceName != null
+            && !parsedServiceName.isEmpty()) { // Do not override global service name if parsed service name is invalid
+          defaultRemoteServiceName = parsedServiceName;
+        }
+      }
+      Endpoint.Builder builder = Endpoint.newBuilder();
+      int port = url.getPort();
+      if (port > 0) builder.port(port);
       boolean parsed = builder.parseIp(url.getHost());
-      if (remoteServiceName == null || "".equals(remoteServiceName)) {
+      if (defaultRemoteServiceName == null || "".equals(defaultRemoteServiceName)) {
         String databaseName = connection.getCatalog();
         if (databaseName != null && !databaseName.isEmpty()) {
           builder.serviceName(databaseName);
@@ -70,7 +85,7 @@ final class TracingJdbcEventListener extends SimpleJdbcEventListener {
           builder.serviceName("");
         }
       } else {
-        builder.serviceName(remoteServiceName);
+        builder.serviceName(defaultRemoteServiceName);
       }
       span.remoteEndpoint(builder.build());
     } catch (Exception e) {

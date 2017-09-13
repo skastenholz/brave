@@ -3,7 +3,7 @@
   <parent>
     <groupId>io.zipkin.brave</groupId>
     <artifactId>brave-instrumentation-parent</artifactId>
-    <version>4.5.3-SNAPSHOT</version>
+    <version>4.7.1-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
@@ -12,7 +12,7 @@
 
   <properties>
     <main.basedir>${project.basedir}/../..</main.basedir>
-    <p6spy.version>3.0.0</p6spy.version>
+    <p6spy.version>3.2.0</p6spy.version>
     <derby.version>10.13.1.1</derby.version>
   </properties>
 
@@ -22,6 +22,7 @@
       <groupId>p6spy</groupId>
       <artifactId>p6spy</artifactId>
       <version>${p6spy.version}</version>
+      <!-- intentionally not provided scope as users are unlikely to already be using p6spy -->
     </dependency>
 
     <dependency>

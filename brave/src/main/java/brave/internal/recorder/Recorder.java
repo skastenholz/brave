@@ -5,21 +5,20 @@ import brave.Span;
 import brave.propagation.TraceContext;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nullable;
-import zipkin.Endpoint;
-import zipkin.internal.Span2Converter;
 import zipkin.reporter.Reporter;
+import zipkin2.Endpoint;
 
 /** Dispatches mutations on a span to a shared object per trace/span id. */
 public final class Recorder {
 
   final MutableSpanMap spanMap;
-  final Reporter<zipkin.Span> reporter;
+  final Reporter<zipkin2.Span> reporter;
   final AtomicBoolean noop;
 
   public Recorder(
       Endpoint localEndpoint,
       Clock clock,
-      Reporter<zipkin.Span> reporter,
+      Reporter<zipkin2.Span> reporter,
       AtomicBoolean noop
   ) {
     this.spanMap = new MutableSpanMap(localEndpoint, clock, reporter, noop);
@@ -40,29 +39,34 @@ public final class Recorder {
 
   /** @see brave.Span#start(long) */
   public void start(TraceContext context, long timestamp) {
+    if (noop.get()) return;
     spanMap.getOrCreate(context).start(timestamp);
   }
 
   /** @see brave.Span#name(String) */
   public void name(TraceContext context, String name) {
+    if (noop.get()) return;
     if (name == null) throw new NullPointerException("name == null");
     spanMap.getOrCreate(context).name(name);
   }
 
   /** @see brave.Span#kind(Span.Kind) */
   public void kind(TraceContext context, Span.Kind kind) {
+    if (noop.get()) return;
     if (kind == null) throw new NullPointerException("kind == null");
     spanMap.getOrCreate(context).kind(kind);
   }
 
   /** @see brave.Span#annotate(long, String) */
   public void annotate(TraceContext context, long timestamp, String value) {
+    if (noop.get()) return;
     if (value == null) throw new NullPointerException("value == null");
     spanMap.getOrCreate(context).annotate(timestamp, value);
   }
 
   /** @see brave.Span#tag(String, String) */
   public void tag(TraceContext context, String key, String value) {
+    if (noop.get()) return;
     if (key == null) throw new NullPointerException("key == null");
     if (key.isEmpty()) throw new IllegalArgumentException("key is empty");
     if (value == null) throw new NullPointerException("value == null");
@@ -71,6 +75,7 @@ public final class Recorder {
 
   /** @see brave.Span#remoteEndpoint(Endpoint) */
   public void remoteEndpoint(TraceContext context, Endpoint remoteEndpoint) {
+    if (noop.get()) return;
     if (remoteEndpoint == null) throw new NullPointerException("remoteEndpoint == null");
     spanMap.getOrCreate(context).remoteEndpoint(remoteEndpoint);
   }
@@ -81,7 +86,7 @@ public final class Recorder {
     if (span == null || noop.get()) return;
     synchronized (span) {
       span.finish(finishTimestamp);
-      reporter.report(Span2Converter.toSpan(span.toSpan()));
+      reporter.report(span.toSpan());
     }
   }
 
@@ -96,7 +101,7 @@ public final class Recorder {
     if (span == null || noop.get()) return;
     synchronized (span) {
       span.finish(null);
-      reporter.report(Span2Converter.toSpan(span.toSpan()));
+      reporter.report(span.toSpan());
     }
   }
 }
