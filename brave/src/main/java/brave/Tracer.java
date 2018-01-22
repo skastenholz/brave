@@ -48,6 +48,7 @@ import zipkin2.reporter.Reporter;
  * @see Propagation
  */
 public final class Tracer {
+
   /** @deprecated Please use {@link Tracing#newBuilder()} */
   @Deprecated public static Builder newBuilder() {
     return new Builder();
@@ -127,25 +128,27 @@ public final class Tracer {
   }
 
   final Clock clock;
+  final Propagation.Factory propagationFactory;
+  final Reporter<zipkin2.Span> reporter; // for toString
   final Recorder recorder;
   final Sampler sampler;
   final CurrentTraceContext currentTraceContext;
-  final boolean traceId128Bit;
+  final boolean traceId128Bit, supportsJoin;
   final AtomicBoolean noop;
-  final boolean supportsJoin;
 
-  Tracer(Tracing.Builder builder, AtomicBoolean noop) {
+  Tracer(Tracing.Builder builder, Clock clock, AtomicBoolean noop) {
     this.noop = noop;
-    this.supportsJoin = builder.supportsJoin && builder.propagationFactory.supportsJoin();
-    this.clock = builder.clock;
+    this.propagationFactory = builder.propagationFactory;
+    this.supportsJoin = builder.supportsJoin && propagationFactory.supportsJoin();
+    this.clock = clock;
+    this.reporter = builder.reporter;
     this.recorder = new Recorder(builder.localEndpoint, clock, builder.reporter, this.noop);
     this.sampler = builder.sampler;
     this.currentTraceContext = builder.currentTraceContext;
-    this.traceId128Bit =
-        builder.traceId128Bit || builder.propagationFactory.requires128BitTraceId();
+    this.traceId128Bit = builder.traceId128Bit || propagationFactory.requires128BitTraceId();
   }
 
-  /** @deprecated use {@link Tracing#clock()} */
+  /** @deprecated use {@link #clock(TraceContext)} */
   @Deprecated public Clock clock() {
     return clock;
   }
@@ -201,8 +204,8 @@ public final class Tracer {
   }
 
   /**
-   * Explicitly creates a child within an existing. The result will be have its parent ID set to the
-   * input's span ID.
+   * Explicitly creates a child within an existing trace. The result will be have its parent ID set
+   * to the input's span ID. If a sampling decision has not yet been made, one will happen here.
    *
    * <p>To implicitly create a new trace, or a span within an existing one, use {@link
    * #nextSpan()}.
@@ -215,7 +218,8 @@ public final class Tracer {
   /**
    * This creates a new span based on parameters extracted from an incoming request. This will
    * always result in a new span. If no trace identifiers were extracted, a span will be created
-   * based on the implicit context in the same manner as {@link #nextSpan()}.
+   * based on the implicit context in the same manner as {@link #nextSpan()}. If a sampling decision
+   * has not yet been made, one will happen here.
    *
    * <p>Ex.
    * <pre>{@code
@@ -247,10 +251,13 @@ public final class Tracer {
     }
     long nextId = Platform.get().randomLong();
     if (parent != null) {
+      Boolean sampled = parent.sampled();
+      if (sampled == null) sampled = sampler.isSampled(parent.traceId());
       return toSpan(parent.toBuilder() // copies "extra" from the parent
           .spanId(nextId)
           .parentId(parent.spanId())
           .shared(false)
+          .sampled(sampled)
           .build());
     }
     TraceIdContext traceIdContext = extracted.traceIdContext();
@@ -292,10 +299,11 @@ public final class Tracer {
   /** Converts the context as-is to a Span object */
   public Span toSpan(TraceContext context) {
     if (context == null) throw new NullPointerException("context == null");
-    if (noop.get() == false && Boolean.TRUE.equals(context.sampled())) {
-      return RealSpan.create(context, clock, recorder);
+    TraceContext decorated = propagationFactory.decorate(context);
+    if (!noop.get() && Boolean.TRUE.equals(decorated.sampled())) {
+      return RealSpan.create(decorated, recorder);
     }
-    return NoopSpan.create(context);
+    return NoopSpan.create(decorated);
   }
 
   TraceContext newRootContext(SamplingFlags samplingFlags, List<Object> extra) {
@@ -377,6 +385,17 @@ public final class Tracer {
     @Override public String toString() {
       return scope.toString();
     }
+  }
+
+  @Override public String toString() {
+    TraceContext currentSpan = currentTraceContext.get();
+    List<zipkin2.Span> inFlight = recorder.snapshot();
+    return "Tracer{"
+        + (currentSpan != null ? ("currentSpan=" + currentSpan + ", ") : "")
+        + (inFlight.size() > 0 ? ("inFlight=" + inFlight + ", ") : "")
+        + (noop.get() ? "noop=true, " : "")
+        + "reporter=" + reporter
+        + "}";
   }
 
   static TraceContext appendExtra(TraceContext context, List<Object> extra) {

@@ -3,6 +3,7 @@ package brave;
 import brave.internal.Internal;
 import brave.internal.Nullable;
 import brave.internal.Platform;
+import brave.propagation.B3Propagation;
 import brave.propagation.CurrentTraceContext;
 import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
@@ -50,11 +51,20 @@ public abstract class Tracing implements Closeable {
    */
   abstract public CurrentTraceContext currentTraceContext();
 
+  /** @deprecated use {@link #clock(TraceContext)} */
+  @Deprecated abstract public Clock clock();
+
   /**
    * This exposes the microsecond clock used by operations such as {@link Span#finish()}. This is
-   * helpful when you want to time things manually.
+   * helpful when you want to time things manually. Notably, this clock will be coherent for all
+   * child spans in this trace (that use this tracing component). For example, NTP or system clock
+   * changes will not affect the result.
+   *
+   * @param context references a potentially unstarted span you'd like a clock correlated with
    */
-  abstract public Clock clock();
+  public final Clock clock(TraceContext context) {
+    return tracer().recorder.clock(context);
+  }
 
   // volatile for visibility on get. writes guarded by Tracing.class
   static volatile Tracing current = null;
@@ -112,7 +122,7 @@ public abstract class Tracing implements Closeable {
     CurrentTraceContext currentTraceContext = CurrentTraceContext.Default.inheritable();
     boolean traceId128Bit = false;
     boolean supportsJoin = true;
-    Propagation.Factory propagationFactory = Propagation.Factory.B3;
+    Propagation.Factory propagationFactory = B3Propagation.FACTORY;
 
     /**
      * Controls the name of the service being traced, while still using a default site-local IP.
@@ -178,7 +188,7 @@ public abstract class Tracing implements Closeable {
       }
       this.reporter = new Reporter<zipkin2.Span>() {
         @Override public void report(zipkin2.Span span) {
-          reporter.report(zipkin.internal.V2SpanConverter.toSpan(span));
+          reporter.report(brave.internal.V2SpanConverter.toSpan(span));
         }
 
         @Override public String toString() {
@@ -188,7 +198,15 @@ public abstract class Tracing implements Closeable {
       return this;
     }
 
-    /** See {@link Tracing#clock()} */
+    /**
+     * Assigns microsecond-resolution timestamp source for operations like {@link Span#start()}.
+     * Defaults to JRE-specific platform time.
+     *
+     * <p>Note: timestamps are read once per trace, then {@link System#nanoTime() ticks} thereafter.
+     * This ensures there's no clock skew problems inside a single trace.
+     *
+     * See {@link Tracing#clock(TraceContext)}
+     */
     public Builder clock(Clock clock) {
       if (clock == null) throw new NullPointerException("clock == null");
       this.clock = clock;
@@ -218,7 +236,7 @@ public abstract class Tracing implements Closeable {
 
     /**
      * Controls how trace contexts are injected or extracted from remote requests, such as from http
-     * headers. Defaults to {@link Propagation.Factory#B3}
+     * headers. Defaults to {@link B3Propagation#FACTORY}
      */
     public Builder propagationFactory(Propagation.Factory propagationFactory) {
       if (propagationFactory == null) throw new NullPointerException("propagationFactory == null");
@@ -251,14 +269,14 @@ public abstract class Tracing implements Closeable {
     }
 
     public Tracing build() {
-      if (clock == null) clock = Platform.get();
+      if (clock == null) clock = Platform.get().clock();
       if (localEndpoint == null) {
         localEndpoint = Platform.get().localEndpoint();
         if (localServiceName != null) {
           localEndpoint = localEndpoint.toBuilder().serviceName(localServiceName).build();
         }
       }
-      if (reporter == null) reporter = Platform.get();
+      if (reporter == null) reporter = Platform.get().reporter();
       return new Default(this);
     }
 
@@ -282,11 +300,11 @@ public abstract class Tracing implements Closeable {
     final Clock clock;
 
     Default(Builder builder) {
-      this.tracer = new Tracer(builder, noop);
+      this.clock = builder.clock;
+      this.tracer = new Tracer(builder, clock, noop);
       this.propagationFactory = builder.propagationFactory;
       this.stringPropagation = builder.propagationFactory.create(Propagation.KeyFactory.STRING);
       this.currentTraceContext = builder.currentTraceContext;
-      this.clock = builder.clock;
       maybeSetCurrent();
     }
 

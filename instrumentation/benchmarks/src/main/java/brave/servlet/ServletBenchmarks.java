@@ -2,11 +2,15 @@ package brave.servlet;
 
 import brave.Tracing;
 import brave.http.HttpServerBenchmarks;
+import brave.propagation.B3Propagation;
+import brave.propagation.ExtraFieldPropagation;
+import brave.propagation.aws.AWSPropagation;
 import brave.sampler.Sampler;
 import io.undertow.servlet.Servlets;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.FilterInfo;
 import java.io.IOException;
+import java.util.Arrays;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -29,6 +33,8 @@ public class ServletBenchmarks extends HttpServerBenchmarks {
   static class HelloServlet extends HttpServlet {
     @Override protected void doGet(HttpServletRequest req, HttpServletResponse resp)
         throws IOException {
+      // noop if not configured
+      ExtraFieldPropagation.set("country-code", "FO");
       resp.addHeader("Content-Type", "text/plain; charset=UTF-8");
       resp.getWriter().println("hello world");
     }
@@ -48,11 +54,46 @@ public class ServletBenchmarks extends HttpServerBenchmarks {
     }
   }
 
+  public static class TracedExtra extends ForwardingTracingFilter {
+    public TracedExtra() {
+      super(TracingFilter.create(Tracing.newBuilder()
+          .propagationFactory(ExtraFieldPropagation.newFactoryBuilder(B3Propagation.FACTORY)
+              .addField("x-vcap-request-id")
+              .addPrefixedFields("baggage-", Arrays.asList("country-code", "user-id"))
+              .build()
+          ).build()));
+    }
+  }
+
+  public static class Traced128 extends ForwardingTracingFilter {
+    public Traced128() {
+      super(TracingFilter.create(
+          Tracing.newBuilder().traceId128Bit(true).spanReporter(Reporter.NOOP).build()));
+    }
+  }
+
+  public static class TracedAWS extends ForwardingTracingFilter {
+    public TracedAWS() {
+      super(TracingFilter.create(
+          Tracing.newBuilder()
+              .propagationFactory(AWSPropagation.FACTORY)
+              .spanReporter(Reporter.NOOP)
+              .build()
+      ));
+    }
+  }
+
   @Override protected void init(DeploymentInfo servletBuilder) {
     servletBuilder.addFilter(new FilterInfo("Unsampled", Unsampled.class))
         .addFilterUrlMapping("Unsampled", "/unsampled", REQUEST)
         .addFilter(new FilterInfo("Traced", Traced.class))
         .addFilterUrlMapping("Traced", "/traced", REQUEST)
+        .addFilter(new FilterInfo("TracedExtra", TracedExtra.class))
+        .addFilterUrlMapping("TracedExtra", "/tracedextra", REQUEST)
+        .addFilter(new FilterInfo("Traced128", Traced128.class))
+        .addFilterUrlMapping("Traced128", "/traced128", REQUEST)
+        .addFilter(new FilterInfo("TracedAWS", TracedAWS.class))
+        .addFilterUrlMapping("TracedAWS", "/tracedaws", REQUEST)
         .addServlets(Servlets.servlet("HelloServlet", HelloServlet.class).addMapping("/*"));
   }
 

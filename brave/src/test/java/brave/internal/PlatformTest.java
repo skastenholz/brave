@@ -34,28 +34,21 @@ public class PlatformTest {
   Endpoint unknownEndpoint = Endpoint.newBuilder().serviceName("unknown").build();
   Platform platform = Platform.Jre7.buildIfSupported(true);
 
-  @Test public void relativeTimestamp_incrementsAccordingToNanoTick() {
-    mockStatic(System.class);
-    when(System.currentTimeMillis()).thenReturn(0L);
-    when(System.nanoTime()).thenReturn(0L);
+  @Test public void clock_hasNiceToString_jre7() {
+    assertThat(platform.clock())
+        .hasToString("System.currentTimeMillis()");
+  }
 
-    Platform platform = new Platform() {
-      @Override public boolean zipkinV1Present() {
-        return true;
-      }
+  @Test public void clock_hasNiceToString_jre9() {
+    Platform platform = new AutoValue_Platform_Jre9(true);
 
-      @Override public long randomLong() {
-        return 1L;
-      }
+    assertThat(platform.clock())
+        .hasToString("Clock.systemUTC().instant()");
+  }
 
-      @Override public long nextTraceIdHigh() {
-        return 1L;
-      }
-    };
-
-    when(System.nanoTime()).thenReturn(1000L); // 1 microsecond
-
-    assertThat(platform.currentTimeMicroseconds()).isEqualTo(1);
+  @Test public void reporter_hasNiceToString() {
+    assertThat(platform.reporter())
+        .hasToString("LoggingReporter{name=brave.Tracer}");
   }
 
   // example from X-Amzn-Trace-Id: Root=1-5759e988-bd862e3fe1be46a994272793;Sampled=1

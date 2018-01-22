@@ -4,12 +4,18 @@ import brave.Span;
 import brave.http.HttpServerHandler;
 import brave.internal.Nullable;
 import java.io.IOException;
+import java.lang.reflect.Method;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import javax.servlet.AsyncContext;
 import javax.servlet.AsyncEvent;
 import javax.servlet.AsyncListener;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpServletResponseWrapper;
+import zipkin2.Call;
 
 /**
  * Access to servlet version-specific features
@@ -54,7 +60,7 @@ abstract class ServletRuntime {
     return new Servlet25();
   }
 
-  private static final class Servlet3 extends ServletRuntime {
+  static final class Servlet3 extends ServletRuntime {
     @Override boolean isAsync(HttpServletRequest request) {
       return request.isAsyncStarted();
     }
@@ -66,27 +72,52 @@ abstract class ServletRuntime {
     @Override void handleAsync(HttpServerHandler<HttpServletRequest, HttpServletResponse> handler,
         HttpServletRequest request, Span span) {
       if (span.isNoop()) return; // don't add overhead when we aren't httpTracing
-      request.getAsyncContext().addListener(new AsyncListener() {
-        @Override public void onComplete(AsyncEvent e) throws IOException {
-          handler.handleSend((HttpServletResponse) e.getSuppliedResponse(), null, span);
-        }
+      request.getAsyncContext().addListener(new TracingAsyncListener(handler, span));
+    }
 
-        @Override public void onTimeout(AsyncEvent e) throws IOException {
-          span.tag("error", String.format("Timed out after %sms", e.getAsyncContext().getTimeout()));
-          handler.handleSend((HttpServletResponse) e.getSuppliedResponse(), null, span);
-        }
+    static final class TracingAsyncListener implements AsyncListener {
+      final HttpServerHandler<HttpServletRequest, HttpServletResponse> handler;
+      final Span span;
+      volatile boolean complete; // multiple async events can occur, only complete once
 
-        @Override public void onError(AsyncEvent e) throws IOException {
-          handler.handleSend(null, e.getThrowable(), span);
-        }
+      TracingAsyncListener(HttpServerHandler<HttpServletRequest, HttpServletResponse> handler,
+          Span span) {
+        this.handler = handler;
+        this.span = span;
+      }
 
-        @Override public void onStartAsync(AsyncEvent e) throws IOException {
-        }
-      });
+      @Override public void onComplete(AsyncEvent e) {
+        if (complete) return;
+        handler.handleSend((HttpServletResponse) e.getSuppliedResponse(), null, span);
+        complete = true;
+      }
+
+      @Override public void onTimeout(AsyncEvent e) {
+        if (complete) return;
+        span.tag("error", String.format("Timed out after %sms", e.getAsyncContext().getTimeout()));
+        handler.handleSend((HttpServletResponse) e.getSuppliedResponse(), null, span);
+        complete = true;
+      }
+
+      @Override public void onError(AsyncEvent e) {
+        if (complete) return;
+        handler.handleSend(null, e.getThrowable(), span);
+        complete = true;
+      }
+
+      /** If another async is created (ex via asyncContext.dispatch), this needs to be re-attached */
+      @Override public void onStartAsync(AsyncEvent event) {
+        AsyncContext eventAsyncContext = event.getAsyncContext();
+        if (eventAsyncContext != null) eventAsyncContext.addListener(this);
+      }
+
+      @Override public String toString() {
+        return "TracingAsyncListener{" + span.context() + "}";
+      }
     }
   }
 
-  private static final class Servlet25 extends ServletRuntime {
+  static final class Servlet25 extends ServletRuntime {
     @Override HttpServletResponse httpResponse(ServletResponse response) {
       return new Servlet25ServerResponseAdapter(response);
     }
@@ -100,12 +131,57 @@ abstract class ServletRuntime {
       assert false : "this should never be called in Servlet 2.5";
     }
 
+    // copy-on-write global reflection cache outperforms thread local copies
+    final AtomicReference<Map<Class<?>, Object>> classToGetStatus =
+        new AtomicReference<>(new LinkedHashMap<>());
+    static final String RETURN_NULL = "RETURN_NULL";
+
+    /**
+     * Eventhough the Servlet 2.5 version of HttpServletResponse doesn't have the getStatus method,
+     * routine servlet runtimes, do, for example {@code org.eclipse.jetty.server.Response}
+     */
     @Override @Nullable Integer status(HttpServletResponse response) {
       if (response instanceof Servlet25ServerResponseAdapter) {
         // servlet 2.5 doesn't have get status
         return ((Servlet25ServerResponseAdapter) response).getStatusInServlet25();
       }
-      return null;
+      Class<? extends HttpServletResponse> clazz = response.getClass();
+      Map<Class<?>, Object> classesToCheck = classToGetStatus.get();
+      Object getStatusMethod = classesToCheck.get(clazz);
+      if (getStatusMethod == RETURN_NULL ||
+          (getStatusMethod == null && classesToCheck.size() == 10)) { // limit size
+        return null;
+      }
+
+      // Now, we either have a cached method or we have room to cache a method
+      if (getStatusMethod == null) {
+        if (clazz.isLocalClass() || clazz.isAnonymousClass()) return null; // don't cache
+        try {
+          // we don't check for accessibility as isAccessible is deprecated: just fail later
+          getStatusMethod = clazz.getMethod("getStatus");
+          return (int) ((Method) getStatusMethod).invoke(response);
+        } catch (Throwable throwable) {
+          Call.propagateIfFatal(throwable);
+          getStatusMethod = RETURN_NULL;
+          return null;
+        } finally {
+          // regardless of success or fail, replace the cache
+          Map<Class<?>, Object> replacement = new LinkedHashMap<>(classesToCheck);
+          replacement.put(clazz, getStatusMethod);
+          classToGetStatus.set(replacement); // lost race will reset, but only up to size - 1 times
+        }
+      }
+
+      // if we are here, we have a cached method, that "should" never fail, but we check anyway
+      try {
+        return (int) ((Method) getStatusMethod).invoke(response);
+      } catch (Throwable throwable) {
+        Call.propagateIfFatal(throwable);
+        Map<Class<?>, Object> replacement = new LinkedHashMap<>(classesToCheck);
+        replacement.put(clazz, RETURN_NULL);
+        classToGetStatus.set(replacement); // prefer overriding on failure
+        return null;
+      }
     }
   }
 

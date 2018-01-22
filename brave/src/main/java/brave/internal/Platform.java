@@ -13,6 +13,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.jvnet.animal_sniffer.IgnoreJRERequirement;
 import zipkin2.Endpoint;
+import zipkin2.Span;
 import zipkin2.reporter.Reporter;
 
 /**
@@ -20,28 +21,32 @@ import zipkin2.reporter.Reporter;
  *
  * <p>Originally designed by OkHttp team, derived from {@code okhttp3.internal.platform.Platform}
  */
-public abstract class Platform implements Clock, Reporter<zipkin2.Span> {
+public abstract class Platform {
   static final Logger logger = Logger.getLogger(Tracer.class.getName());
 
   private static final Platform PLATFORM = findPlatform();
 
-  // currentTimeMicroseconds is derived by this
-  final long createTimestamp;
-  final long createTick;
   volatile Endpoint localEndpoint;
-
-  Platform() {
-    createTimestamp = System.currentTimeMillis() * 1000;
-    createTick = System.nanoTime();
-  }
 
   /** Ensure we don't raise a {@linkplain ClassNotFoundException} calling deprecated methods */
   public abstract boolean zipkinV1Present();
 
-  @Override public void report(zipkin2.Span span) {
-    if (!logger.isLoggable(Level.INFO)) return;
-    if (span == null) throw new NullPointerException("span == null");
-    logger.info(span.toString());
+  public Reporter<zipkin2.Span> reporter() {
+    return LoggingReporter.INSTANCE;
+  }
+
+  enum LoggingReporter implements Reporter<zipkin2.Span> {
+    INSTANCE;
+
+    @Override public void report(Span span) {
+      if (!logger.isLoggable(Level.INFO)) return;
+      if (span == null) throw new NullPointerException("span == null");
+      logger.info(span.toString());
+    }
+
+    @Override public String toString() {
+      return "LoggingReporter{name=" + logger.getName() + "}";
+    }
   }
 
   public Endpoint localEndpoint() {
@@ -96,6 +101,10 @@ public abstract class Platform implements Clock, Reporter<zipkin2.Span> {
       zipkinV1Present = false;
     }
 
+    Platform jre9 = Jre9.buildIfSupported(zipkinV1Present);
+
+    if (jre9 != null) return jre9;
+
     Platform jre7 = Jre7.buildIfSupported(zipkinV1Present);
 
     if (jre7 != null) return jre7;
@@ -122,10 +131,59 @@ public abstract class Platform implements Clock, Reporter<zipkin2.Span> {
    */
   public abstract long nextTraceIdHigh();
 
-  /** gets a timestamp based on duration since the create tick. */
-  @Override
-  public long currentTimeMicroseconds() {
-    return ((System.nanoTime() - createTick) / 1000) + createTimestamp;
+  public Clock clock() {
+    return new Clock() {
+      @Override public long currentTimeMicroseconds() {
+        return System.currentTimeMillis() * 1000;
+      }
+
+      @Override public String toString() {
+        return "System.currentTimeMillis()";
+      }
+    };
+  }
+
+  @AutoValue
+  static abstract class Jre9 extends Platform {
+
+    static Jre9 buildIfSupported(boolean zipkinV1Present) {
+      // Find JRE 9 new methods
+      try {
+        Class zoneId = Class.forName("java.time.ZoneId");
+        Class.forName("java.time.Clock").getMethod("tickMillis", zoneId);
+        return new AutoValue_Platform_Jre9(zipkinV1Present);
+      } catch (ClassNotFoundException e) {
+        // pre JRE 8
+      } catch (NoSuchMethodException e) {
+        // pre JRE 9
+      }
+      return null;
+    }
+
+    @IgnoreJRERequirement
+    @Override public Clock clock() {
+      return new Clock() {
+        // we could use jdk.internal.misc.VM to do this more efficiently, but it is internal
+        @Override public long currentTimeMicroseconds() {
+          java.time.Instant instant = java.time.Clock.systemUTC().instant();
+          return (instant.getEpochSecond() * 1000000) + (instant.getNano() / 1000);
+        }
+
+        @Override public String toString() {
+          return "Clock.systemUTC().instant()";
+        }
+      };
+    }
+
+    @IgnoreJRERequirement
+    @Override public long randomLong() {
+      return java.util.concurrent.ThreadLocalRandom.current().nextLong();
+    }
+
+    @IgnoreJRERequirement
+    @Override public long nextTraceIdHigh() {
+      return nextTraceIdHigh(java.util.concurrent.ThreadLocalRandom.current());
+    }
   }
 
   @AutoValue
@@ -157,7 +215,7 @@ public abstract class Platform implements Clock, Reporter<zipkin2.Span> {
     long epochSeconds = System.currentTimeMillis() / 1000;
     int random = prng.nextInt();
     return (epochSeconds & 0xffffffffL) << 32
-        |  (random & 0xffffffffL);
+        | (random & 0xffffffffL);
   }
 
   @AutoValue

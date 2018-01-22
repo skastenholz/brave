@@ -6,26 +6,33 @@ import brave.Tracer.SpanInScope;
 import brave.Tracing;
 import brave.http.HttpServerHandler;
 import brave.http.HttpTracing;
+import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
 import brave.servlet.HttpServletAdapter;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.servlet.AsyncHandlerInterceptor;
 import org.springframework.web.servlet.HandlerInterceptor;
-import org.springframework.web.servlet.handler.HandlerInterceptorAdapter;
+import org.springframework.web.servlet.ModelAndView;
 
-/**
- * Tracing interceptor for Spring Web MVC, which can be used as both an {@link
- * AsyncHandlerInterceptor} or a normal {@link HandlerInterceptor}.
- */
-public final class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
+/** Tracing interceptor for Spring Web MVC {@link HandlerInterceptor}. */
+public final class TracingHandlerInterceptor implements HandlerInterceptor {
+  static final Propagation.Getter<HttpServletRequest, String> GETTER =
+      new Propagation.Getter<HttpServletRequest, String>() {
+        @Override public String get(HttpServletRequest carrier, String key) {
+          return carrier.getHeader(key);
+        }
 
-  public static AsyncHandlerInterceptor create(Tracing tracing) {
+        @Override public String toString() {
+          return "HttpServletRequest::getHeader";
+        }
+      };
+
+  public static HandlerInterceptor create(Tracing tracing) {
     return new TracingHandlerInterceptor(HttpTracing.create(tracing));
   }
 
-  public static AsyncHandlerInterceptor create(HttpTracing httpTracing) {
+  public static HandlerInterceptor create(HttpTracing httpTracing) {
     return new TracingHandlerInterceptor(httpTracing);
   }
 
@@ -36,7 +43,7 @@ public final class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
   @Autowired TracingHandlerInterceptor(HttpTracing httpTracing) { // internal
     tracer = httpTracing.tracing().tracer();
     handler = HttpServerHandler.create(httpTracing, new HttpServletAdapter());
-    extractor = httpTracing.tracing().propagation().extractor(HttpServletRequest::getHeader);
+    extractor = httpTracing.tracing().propagation().extractor(GETTER);
   }
 
   @Override
@@ -48,6 +55,11 @@ public final class TracingHandlerInterceptor extends HandlerInterceptorAdapter {
     Span span = handler.handleReceive(extractor, request);
     request.setAttribute(SpanInScope.class.getName(), tracer.withSpanInScope(span));
     return true;
+  }
+
+  @Override
+  public void postHandle(HttpServletRequest request, HttpServletResponse response, Object handler,
+      ModelAndView modelAndView) throws Exception {
   }
 
   @Override

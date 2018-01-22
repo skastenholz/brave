@@ -3,7 +3,7 @@
   <parent>
   	<groupId>io.zipkin.brave</groupId>
     <artifactId>brave-parent</artifactId>
-    <version>4.9.3-SNAPSHOT</version>
+    <version>4.13.4-SNAPSHOT</version>
   </parent>   
   
   <artifactId>brave-resteasy3-spring</artifactId>
@@ -62,4 +62,15 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+  <build>
+    <plugins>
+      <plugin>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <!-- temporary workaround to java.lang.NoClassDefFoundError: javax/annotation/Priority -->
+          <forkCount>0</forkCount>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
 </project>

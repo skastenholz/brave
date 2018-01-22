@@ -3,6 +3,7 @@ package brave.spring.webmvc;
 import brave.Tracer;
 import brave.http.HttpTracing;
 import brave.http.ITServletContainer;
+import brave.propagation.ExtraFieldPropagation;
 import java.io.IOException;
 import java.util.concurrent.Callable;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -16,8 +17,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.context.support.AnnotationConfigWebApplicationContext;
-import org.springframework.web.servlet.AsyncHandlerInterceptor;
 import org.springframework.web.servlet.DispatcherServlet;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurerAdapter;
@@ -34,6 +35,11 @@ public class ITTracingHandlerInterceptor extends ITServletContainer {
     @RequestMapping(value = "/foo")
     public ResponseEntity<Void> foo() throws IOException {
       return new ResponseEntity<>(HttpStatus.OK);
+    }
+
+    @RequestMapping(value = "/extra")
+    public ResponseEntity<String> extra() throws IOException {
+      return new ResponseEntity<>(ExtraFieldPropagation.get(EXTRA_KEY), HttpStatus.OK);
     }
 
     @RequestMapping(value = "/badrequest")
@@ -68,12 +74,12 @@ public class ITTracingHandlerInterceptor extends ITServletContainer {
   @Configuration
   @EnableWebMvc
   static class TracingConfig extends WebMvcConfigurerAdapter {
-    @Bean AsyncHandlerInterceptor tracingInterceptor(HttpTracing httpTracing) {
+    @Bean HandlerInterceptor tracingInterceptor(HttpTracing httpTracing) {
       return TracingHandlerInterceptor.create(httpTracing);
     }
 
     @Autowired
-    private AsyncHandlerInterceptor tracingInterceptor;
+    private HandlerInterceptor tracingInterceptor;
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {

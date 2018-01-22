@@ -3,7 +3,7 @@
   <parent>
     <groupId>io.zipkin.brave</groupId>
     <artifactId>brave-instrumentation-parent</artifactId>
-    <version>4.9.3-SNAPSHOT</version>
+    <version>4.13.4-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
 
@@ -12,8 +12,8 @@
 
   <properties>
     <main.basedir>${project.basedir}/../..</main.basedir>
-    <p6spy.version>3.3.0</p6spy.version>
-    <derby.version>10.13.1.1</derby.version>
+    <p6spy.version>3.6.0</p6spy.version>
+    <derby.version>10.14.1.0</derby.version>
   </properties>
 
   <dependencies>

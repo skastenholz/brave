@@ -336,7 +336,7 @@ tracingBuilder.propagationFactory(
 );
 
 // later, you can tag that request ID or use it in log correlation
-requestId = ExtraFieldPropagation.current("x-vcap-request-id");
+requestId = ExtraFieldPropagation.get("x-vcap-request-id");
 ```
 
 You may also need to propagate a trace context you aren't using. For example, you may be in an
@@ -347,6 +347,33 @@ correctly, pass-through its tracing header like so.
 tracingBuilder.propagationFactory(
   ExtraFieldPropagation.newFactory(B3Propagation.FACTORY, "x-amzn-trace-id")
 );
+```
+
+#### Prefixed fields
+You can also prefix fields, if they follow a common pattern. For example, the following will
+propagate the field "x-vcap-request-id" as-is, but send the fields "country-code" and "user-id"
+on the wire as "baggage-country-code" and "baggage-user-id" respectively.
+
+Setup your tracing instance with allowed fields:
+```java
+tracingBuilder.propagationFactory(
+  ExtraFieldPropagation.newFactoryBuilder(B3Propagation.FACTORY)
+                       .addField("x-vcap-request-id")
+                       .addPrefixedFields("baggage-", Arrays.asList("country-code", "user-id"))
+                       .build()
+);
+```
+
+Later, you can call below to affect the country code of the current trace context
+```java
+ExtraFieldPropagation.set("country-code", "FO");
+String countryCode = ExtraFieldPropagation.get("country-code");
+```
+
+Or, if you have a reference to a trace context, use it explicitly
+```java
+ExtraFieldPropagation.set(span.context(), "country-code", "FO");
+String countryCode = ExtraFieldPropagation.get(span.context(), "country-code");
 ```
 
 ### Extracting a propagated context
@@ -522,7 +549,34 @@ class MyFilter extends Filter {
     // Assume you have code to complete the span
 
     // We now remove the scope (which implicitly detaches it from the span)
-    attributes.get(SpanInScope.class).close();
+    attributes.remove(SpanInScope.class).close();
+  }
+}
+```
+
+Sometimes you have to instrument a library where There's no attribute
+namespace shared across request and response. For this scenario, you can
+use `ThreadLocalSpan` to temporarily store the span between callbacks.
+
+Here's an example:
+```java
+class MyFilter extends Filter {
+  final ThreadLocalSpan threadLocalSpan;
+
+  public void onStart(Request request) {
+    // Assume you have code to start the span and add relevant tags...
+
+    // We now set the span in scope so that any code between here and
+    // the end of the request can see it with Tracer.currentSpan()
+    threadLocalSpan.set(span);
+  }
+
+  public void onFinish(Response response, Attributes attributes) {
+    // as long as we are on the same thread, we can read the span started above
+    Span span = threadLocalSpan.remove();
+    if (span == null) return;
+
+    // Assume you have code to complete the span
   }
 }
 ```
@@ -551,7 +605,7 @@ class MyFilter extends Filter {
   public void onFinish(Response response, Attributes attributes) {
     // We can't rely on Tracer.currentSpan(), but we can rely on explicit
     // propagation
-    Span span = attributes.get(Span.class);
+    Span span = attributes.remove(Span.class);
 
     // Assume you have code to complete the span
   }
@@ -602,7 +656,7 @@ Brave 4 was designed to live alongside Brave 3. Using `TracerAdapter`,
 you can navigate between apis, buying you time to update as appropriate.
 
 Concepts are explained below, and there's an elaborate example of interop
-[here](../brave-core/src/test/java/brave/interop/MixedBraveVersionsExample.java).
+[here](../archive/brave-core/src/test/java/brave/interop/MixedBraveVersionsExample.java).
 
 ### Creating a Brave 3 instance
 If your code uses Brave 3 apis, all you need to do is use `TracerAdapter`

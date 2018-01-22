@@ -2,11 +2,15 @@ package brave.spring.webmvc;
 
 import brave.Tracing;
 import brave.http.HttpServerBenchmarks;
+import brave.propagation.B3Propagation;
+import brave.propagation.ExtraFieldPropagation;
+import brave.propagation.aws.AWSPropagation;
 import brave.sampler.Sampler;
 import io.undertow.servlet.api.DeploymentInfo;
 import io.undertow.servlet.api.ServletInfo;
 import io.undertow.servlet.util.ImmediateInstanceHandle;
 import java.io.IOException;
+import java.util.Arrays;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.RunnerException;
 import org.openjdk.jmh.runner.options.Options;
@@ -40,6 +44,17 @@ public class WebMvcBenchmarks extends HttpServerBenchmarks {
     public ResponseEntity<String> traced() throws IOException {
       return ResponseEntity.ok("hello world");
     }
+
+    @RequestMapping("/tracedextra")
+    public ResponseEntity<String> tracedextra() throws IOException {
+      ExtraFieldPropagation.set("country-code", "FO");
+      return ResponseEntity.ok("hello world");
+    }
+
+    @RequestMapping("/traced128")
+    public ResponseEntity<String> traced128() throws IOException {
+      return ResponseEntity.ok("hello world");
+    }
   }
 
   @Configuration
@@ -52,6 +67,23 @@ public class WebMvcBenchmarks extends HttpServerBenchmarks {
       registry.addInterceptor(TracingHandlerInterceptor.create(
           Tracing.newBuilder().spanReporter(Reporter.NOOP).build()
       )).addPathPatterns("/traced");
+      registry.addInterceptor(TracingHandlerInterceptor.create(
+          Tracing.newBuilder()
+              .propagationFactory(ExtraFieldPropagation.newFactoryBuilder(B3Propagation.FACTORY)
+                  .addField("x-vcap-request-id")
+                  .addPrefixedFields("baggage-", Arrays.asList("country-code", "user-id"))
+                  .build()
+              ).build()
+      )).addPathPatterns("/tracedextra");
+      registry.addInterceptor(TracingHandlerInterceptor.create(
+          Tracing.newBuilder().traceId128Bit(true).spanReporter(Reporter.NOOP).build()
+      )).addPathPatterns("/traced128");
+      registry.addInterceptor(TracingHandlerInterceptor.create(
+          Tracing.newBuilder()
+              .propagationFactory(AWSPropagation.FACTORY)
+              .spanReporter(Reporter.NOOP)
+              .build()
+      )).addPathPatterns("/tracedaws");
     }
   }
 

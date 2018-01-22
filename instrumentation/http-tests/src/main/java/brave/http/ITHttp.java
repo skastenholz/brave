@@ -1,13 +1,12 @@
 package brave.http;
 
 import brave.Tracing;
+import brave.propagation.B3Propagation;
 import brave.propagation.CurrentTraceContext;
 import brave.propagation.ExtraFieldPropagation;
-import brave.propagation.Propagation;
 import brave.propagation.StrictCurrentTraceContext;
 import brave.propagation.TraceContext;
 import brave.sampler.Sampler;
-import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import okhttp3.mockwebserver.MockWebServer;
@@ -21,13 +20,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 public abstract class ITHttp {
   @Rule public ExpectedException thrown = ExpectedException.none();
   @Rule public MockWebServer server = new MockWebServer();
+  public static String EXTRA_KEY = "user-id";
 
   protected ConcurrentLinkedDeque<Span> spans = new ConcurrentLinkedDeque<>();
 
   protected CurrentTraceContext currentTraceContext = new StrictCurrentTraceContext();
   protected HttpTracing httpTracing;
 
-  @After public void close() throws IOException {
+  @After public void close() throws Exception {
     Tracing current = Tracing.current();
     if (current != null) current.close();
   }
@@ -43,7 +43,7 @@ public abstract class ITHttp {
           }
           spans.add(s);
         })
-        .propagationFactory(ExtraFieldPropagation.newFactory(Propagation.Factory.B3, "user-id"))
+        .propagationFactory(ExtraFieldPropagation.newFactory(B3Propagation.FACTORY, EXTRA_KEY))
         .currentTraceContext(currentTraceContext)
         .sampler(sampler);
   }

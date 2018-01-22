@@ -5,6 +5,7 @@ import brave.http.HttpAdapter;
 import brave.http.HttpServerParser;
 import brave.http.HttpTracing;
 import brave.http.ITServletContainer;
+import brave.propagation.ExtraFieldPropagation;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import javax.ws.rs.GET;
@@ -38,7 +39,13 @@ public class ITTracingFeature_Container extends ITServletContainer {
     @GET
     @Path("foo")
     public Response foo() {
-      return Response.status(200).build();
+      return Response.ok().build();
+    }
+
+    @GET
+    @Path("extra")
+    public Response extra() {
+      return Response.ok(ExtraFieldPropagation.get(EXTRA_KEY)).build();
     }
 
     @GET
@@ -57,7 +64,7 @@ public class ITTracingFeature_Container extends ITServletContainer {
     @GET
     @Path("async")
     public void async(@Suspended AsyncResponse response) throws IOException {
-      new Thread(() -> response.resume("ok")).start();
+      new Thread(() -> response.resume(Response.status(200).build())).start();
     }
 
     @GET

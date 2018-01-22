@@ -3,7 +3,7 @@
   <parent>
     <groupId>io.zipkin.brave</groupId>
     <artifactId>brave-parent</artifactId>
-    <version>4.9.3-SNAPSHOT</version>
+    <version>4.13.4-SNAPSHOT</version>
   </parent>
 
   <artifactId>brave</artifactId>
@@ -20,8 +20,13 @@
 
   <dependencies>
     <dependency>
+      <groupId>io.zipkin.zipkin2</groupId>
+      <artifactId>zipkin</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.zipkin.java</groupId>
       <artifactId>zipkin</artifactId>
+      <optional>true</optional>
     </dependency>
     <dependency>
       <groupId>io.zipkin.reporter</groupId>
@@ -47,6 +52,12 @@
       <artifactId>auto-value</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- generated code includes Generated annotations! -->
+    <dependency>
+      <groupId>javax.annotation</groupId>
+      <artifactId>javax.annotation-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
     <!-- to mock Platform calls -->
     <dependency>
       <groupId>org.powermock</groupId>
@@ -56,14 +67,14 @@
     </dependency>
     <dependency>
       <groupId>org.powermock</groupId>
-      <artifactId>powermock-api-mockito</artifactId>
+      <artifactId>powermock-api-mockito2</artifactId>
       <version>${powermock.version}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>io.opentracing</groupId>
       <artifactId>opentracing-api</artifactId>
-      <version>0.20.10</version>
+      <version>0.31.0</version>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -102,71 +113,29 @@
   </dependencies>
   <build>
     <plugins>
-      <!-- Need to block import of shaded packages in bnd.bnd as maven bundle plugin analyzes the unshaded jar -->
       <plugin>
         <groupId>org.apache.felix</groupId>
         <artifactId>maven-bundle-plugin</artifactId>
-        <!-- Travis cannot resolve 3.3.0-->
-        <version>3.2.0</version>
-        <configuration>
-          <obrRepository>NONE</obrRepository>
-          <instructions>
-            <_include>-bnd.bnd</_include>
-          </instructions>
-        </configuration>
-        <executions>
-          <execution>
-            <phase>process-classes</phase>
-            <goals>
-              <goal>manifest</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <!-- Repackage internal zipkin classes -->
-      <plugin>
-        <artifactId>maven-shade-plugin</artifactId>
-        <executions>
-          <execution>
-            <phase>package</phase>
-            <goals>
-              <goal>shade</goal>
-            </goals>
-            <configuration>
-              <minimizeJar>true</minimizeJar>
-              <createDependencyReducedPom>false</createDependencyReducedPom>
-              <relocations>
-                <relocation>
-                  <pattern>zipkin.internal</pattern>
-                  <shadedPattern>brave.internal.zipkin</shadedPattern>
-                </relocation>
-              </relocations>
-              <artifactSet>
-                <includes>
-                  <include>io.zipkin.java:zipkin</include>
-                </includes>
-              </artifactSet>
-              <filters>
-                <filter>
-                  <!-- Shade references to internal classes -->
-                  <artifact>io.zipkin.java:zipkin</artifact>
-                  <includes>
-                    <include>zipkin/internal/V2SpanConverter*.class</include>
-                    <!-- TODO: V2 currently indirectly references Util -->
-                    <include>zipkin/internal/Util.class</include>
-                  </includes>
-                  <excludes>
-                    <exclude>*</exclude>
-                  </excludes>
-                </filter>
-              </filters>
-            </configuration>
-          </execution>
-        </executions>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-invoker-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>default-jar</id>
+            <configuration>
+              <archive>
+                <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
+              </archive>
+            </configuration>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>
